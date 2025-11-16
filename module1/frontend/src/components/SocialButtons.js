@@ -22,20 +22,35 @@ export default function SocialButtons() {
   };
 
   return (
-    <div style={{display:'flex', gap:12}}>
+   <div style={{ display: "flex", flexDirection: "row", gap: "12px" }}>
+
+      {/* GOOGLE BUTTON */}
       <button
-        style={{ ...btnStyle, background: 'linear-gradient(90deg,#4285F4,#34A853)', color:'#fff' }}
-        className="social-btn"
-        onClick={() => openPopup('google')}
+        className="social-btn google-btn"
+        onClick={() => openPopup("google")}
+        style={{ display: "flex", alignItems: "center", gap: "10px" }}
       >
-        <span style={{fontSize:18}}></span> Sign in with Google
+        <img
+          src="https://developers.google.com/identity/images/g-logo.png
+"
+          alt="google"
+          style={{ width: 20, height: 20 }}
+        />
+        Continue with Google
       </button>
 
+      {/* FACEBOOK BUTTON */}
       <button
-        style={{ ...btnStyle, background: 'linear-gradient(90deg,#3b5998,#8b9dc3)', color:'#fff' }}
-        onClick={() => openPopup('facebook')}
+        className="social-btn fb-btn"
+        onClick={() => openPopup("facebook")}
+        style={{ display: "flex", alignItems: "center", gap: "10px" }}
       >
-        <span style={{fontSize:18}}></span> Sign in with Facebook
+        <img
+          src="https://upload.wikimedia.org/wikipedia/commons/0/05/Facebook_Logo_%282019%29.png"
+          alt="facebook"
+          style={{ width: 20, height: 20 }}
+        />
+        Continue with Facebook
       </button>
     </div>
   );

@@ -133,13 +133,13 @@ export default function Register() {
   };
 
   return (
-    <div
-      className="d-flex align-items-center justify-content-center"
-      style={{
-        minHeight: "100vh",
-        background: "linear-gradient(135deg, #FFDEE9 0%, #B5FFFC 100%)",
-      }}
-    >
+<div
+  className="d-flex align-items-center justify-content-center"
+  style={{
+    minHeight: "100vh",
+    background: "#f2f2f2",     // Uber light grey
+  }}
+>
       <div
         className="card p-4 shadow-lg"
         style={{
@@ -152,15 +152,13 @@ export default function Register() {
         }}
       >
         <h2
-          className="text-center mb-4 fw-bold"
-          style={{
-            background: "linear-gradient(45deg, #007BFF, #00C2A8)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-          }}
-        >
-          LiveMart — Register / Sign Up
-        </h2>
+  className="text-center mb-4 fw-bold"
+  style={{
+    color: "#000",      // Pure black
+  }}
+>
+  LiveMart — Register / Sign Up
+</h2>
 
         <form onSubmit={requestOtp} className="row g-3">
           <div className="col-md-6">
