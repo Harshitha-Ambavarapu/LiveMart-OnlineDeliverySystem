@@ -1,8 +1,13 @@
-"module1/frontend/node_modules/" 
-"module1/backend/node_modules/" 
-module1/frontend/node_modules/ 
-module1/backend/node_modules/ 
-module1/backend/.env 
-module1/frontend/node_modules/ 
-module1/backend/node_modules/ 
-module1/backend/.env 
+# Node modules
+module1/frontend/node_modules/
+module1/backend/node_modules/
+
+# Environment variables
+module1/frontend/.env
+module1/backend/.env
+
+# Logs
+*.log
+
+# Mac junk files
+.DS_Store
