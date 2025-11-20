@@ -240,14 +240,14 @@ export default function Register() {
             <label className="form-label fw-semibold">Phone Number</label>
             <input
               className="form-control"
-              placeholder="Enter your Phone number"
+              placeholder="Optional"
               value={form.phone}
               onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
             />
           </div>
 
           <div className="col-12">
-            <label className="form-label fw-semibold">Address</label>
+            <label className="form-label fw-semibold">Address (Optional)</label>
             <input
               id="address-input"
               className="form-control"

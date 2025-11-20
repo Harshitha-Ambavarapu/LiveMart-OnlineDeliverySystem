@@ -1,81 +1,75 @@
+// src/components/ProductView.jsx
 import React from "react";
-import productService from "../services/productService";
+import { useParams } from "react-router-dom";
+import productService from "../services/productService"; // adjust path if needed
+import ProductCard from "./ProductCard"; // optional
 
-export default function ProductView({ open, product, onClose, onSave }) {
-  if (!open || !product) return null;
+export default function ProductView() {
+  // 1) Hooks ALWAYS at top level
+  const { id } = useParams();                 // route param
+  const [product, setProduct] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(null);
+  const [qty, setQty] = React.useState(1);
 
-  const [price, setPrice] = React.useState(product.price);
-  const [quantity, setQuantity] = React.useState(product.quantity);
+  React.useEffect(() => {
+    let cancelled = false;
+    async function fetchProduct() {
+      try {
+        setLoading(true);
+        const res = await productService.getProduct(id); // adapt to your api
+        if (!cancelled) {
+          setProduct(res.data || res); // depending on shape
+          setError(null);
+        }
+      } catch (err) {
+        if (!cancelled) setError(err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
 
-  async function saveChanges() {
-    await onSave(product._id, { price, quantity });
-  }
+    if (id) fetchProduct();
+    else setLoading(false);
 
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  // 2) Now conditionally render based on state (hooks already declared)
+  if (loading) return <div>Loading product...</div>;
+  if (error) return <div>Error loading product.</div>;
+  if (!product) return <div>Product not found.</div>;
+
+  // 3) safe render
   return (
-    <div className="modal-backdrop" style={backdrop}>
-      <div className="modal-box" style={box}>
-        <h3>{product.title}</h3>
+    <div className="product-view">
+      <h2>{product.name}</h2>
+      <p>Price: ₹{product.price}</p>
+      <p>Stock: {product.countInStock ?? product.stock}</p>
 
-        <div className="d-flex gap-2 flex-wrap mt-2">
-          {product.images?.map((img, i) => (
-            <img
-              key={i}
-              src={img}
-              alt=""
-              style={{ width: 140, height: 140, objectFit: "cover", borderRadius: 6 }}
-            />
+      <div>
+        <label>Qty</label>
+        <select value={qty} onChange={(e) => setQty(Number(e.target.value))}>
+          {Array.from({ length: Math.min(10, product.countInStock || 10) }).map((_, i) => (
+            <option key={i+1} value={i+1}>{i+1}</option>
           ))}
-        </div>
-
-        <p className="mt-2">{product.description}</p>
-        <p>Category: {product.category}</p>
-
-        <div className="mt-3">
-          <label>Price</label>
-          <input
-            type="number"
-            className="form-control"
-            value={price}
-            onChange={e => setPrice(e.target.value)}
-          />
-
-          <label className="mt-2">Quantity</label>
-          <input
-            type="number"
-            className="form-control"
-            value={quantity}
-            onChange={e => setQuantity(e.target.value)}
-          />
-        </div>
-
-        <div className="mt-3 d-flex gap-2">
-          <button className="btn btn-success" onClick={saveChanges}>
-            Save
-          </button>
-          <button className="btn btn-secondary" onClick={onClose}>
-            Close
-          </button>
-        </div>
+        </select>
       </div>
+
+      <button
+        disabled={(product.countInStock || 0) === 0}
+        onClick={() => {
+          // Add to cart logic here (call cartService or history push)
+          console.log("add to cart", product._id || product.id, qty);
+        }}
+      >
+        Add to cart
+      </button>
+
+      {/* optional: show product card or details */}
+      <ProductCard product={product} />
     </div>
   );
 }
-
-const backdrop = {
-  position: "fixed",
-  top: 0, left: 0, width: "100%", height: "100%",
-  background: "rgba(0,0,0,0.6)",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  zIndex: 999
-};
-
-const box = {
-  background: "#fff",
-  padding: 20,
-  borderRadius: 10,
-  width: 400,
-  maxHeight: "80vh",
-  overflowY: "auto"
-};

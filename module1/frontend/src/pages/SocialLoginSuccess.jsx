@@ -1,52 +1,54 @@
-import React, { useEffect, useContext } from 'react';
+// frontend/src/pages/SocialLoginSuccess.jsx
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AuthContext } from '../contexts/AuthContext';
-import api from '../services/api';
 
-const SocialLoginSuccess = () => {
+function decodeJwtPayload(token) {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    // base64 decode (URL-safe)
+    const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = decodeURIComponent(atob(payload).split('').map(function(c) {
+      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+    return JSON.parse(json);
+  } catch (err) {
+    return null;
+  }
+}
+
+export default function SocialLoginSuccess() {
   const navigate = useNavigate();
-  const { login } = useContext(AuthContext);
 
   useEffect(() => {
-    // token is in fragment like .../social-login-success#token=ABC
     const hash = window.location.hash || '';
-    const params = new URLSearchParams(hash.replace(/^#/, ''));
-    const token = params.get('token');
-    if (!token) {
+    const m = hash.match(/token=([^&]+)/);
+    if (!m) {
+      // no token -> go to login
       navigate('/login');
       return;
     }
-
-    // save token, then fetch /auth/me to get user
+    const token = decodeURIComponent(m[1]);
+    // store token (frontend uses this to call protected APIs)
     localStorage.setItem('token', token);
 
-    api.get('/auth/me')
-      .then(res => {
-        const user = res.data.user;
-        login(token, user);
-        // if role missing, route to a choose-role page
-        if (!user.role) navigate('/choose-role');
-        else if (user.role === 'customer') navigate('/customer');
-        else if (user.role === 'retailer') navigate('/retailer');
-        else if (user.role === 'wholesaler') navigate('/wholesaler');
-      })
-      .catch(err => {
-        console.error(err);
-        // fallback: decode token for role (if token contains role) OR go to login
-        try {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          const user = { id: payload.id, role: payload.role, email: payload.email };
-          login(token, user);
-          if (user.role === 'customer') navigate('/customer');
-          else if (user.role === 'retailer') navigate('/retailer');
-          else if (user.role === 'wholesaler') navigate('/wholesaler');
-        } catch (e) {
-          navigate('/login');
-        }
-      });
-  }, [navigate, login]);
+    // decode payload to decide redirect
+    const payload = decodeJwtPayload(token);
+    const role = payload && payload.role ? String(payload.role).toLowerCase() : 'customer';
 
-  return <div>Signing you in... please wait.</div>;
+    // ROUTES: update as per your frontend routes
+    if (role === 'retailer') {
+      navigate('/retailer-dashboard');
+    } else if (role === 'wholesaler') {
+      navigate('/wholesaler-dashboard');
+    } else {
+      navigate('/customer'); // customer landing page route
+    }
+  }, [navigate]);
+
+  return (
+    <div style={{ padding: 20 }}>
+      <p>Signing you in…</p>
+    </div>
+  );
 }
-
-export default SocialLoginSuccess;

@@ -4,7 +4,6 @@ const express = require('express');
 const path = require('path');
 const cors = require('cors');
 const mongoose = require('mongoose');
-const passport = require('passport'); // <-- ADDED
 
 // --- Basic config ---
 const PORT = Number(process.env.PORT || 5001);
@@ -37,40 +36,19 @@ async function start() {
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// DEBUG ONLY - remove this after testing
+const Product = require('./models/Product');
 
-  // --- Initialize passport (MUST be before mounting auth routes) ---
+app.get('/debug/product/:id', async (req, res) => {
   try {
-    // load passport strategies and serialize/deserialize
-    require('./config/passport')(passport);
-    app.use(passport.initialize());
-    // If you plan to use session-based login (store login in server session),
-    // uncomment the session middleware below and app.use(passport.session()).
-    //
-    // const session = require('express-session');
-    // app.use(session({
-    //   secret: process.env.SESSION_SECRET || 'devsecret',
-    //   resave: false,
-    //   saveUninitialized: false
-    // }));
-    // app.use(passport.session());
-    console.log('Passport initialized');
+    const p = await Product.findById(req.params.id).lean();
+    if (!p) return res.status(404).json({ error: 'Not found' });
+    return res.json({ ok: true, product: p });
   } catch (err) {
-    console.warn('Passport init failed (continuing):', err && (err.message || err));
+    console.error('debug/product error', err);
+    return res.status(500).json({ error: 'server' });
   }
-
-  // DEBUG ONLY - remove this after testing
-  const Product = require('./models/Product');
-
-  app.get('/debug/product/:id', async (req, res) => {
-    try {
-      const p = await Product.findById(req.params.id).lean();
-      if (!p) return res.status(404).json({ error: 'Not found' });
-      return res.json({ ok: true, product: p });
-    } catch (err) {
-      console.error('debug/product error', err);
-      return res.status(500).json({ error: 'server' });
-    }
-  });
+});
 
   // Health check
   app.get('/health', (req, res) => res.json({ ok: true, env: process.env.NODE_ENV || 'dev' }));
@@ -101,15 +79,14 @@ async function start() {
     // not fatal
     console.warn('Could not mount /api/pages route:', err.message || err);
   }
-
+  
   try {
-    const cartRoute = require('./routes/cart');
-    app.use('/api/cart', cartRoute);
-    console.log('Mounted /api/cart');
-  } catch (err) {
-    console.warn('Could not mount /api/cart route:', err.message || err);
-  }
-
+  const cartRoute = require('./routes/cart');
+  app.use('/api/cart', cartRoute);
+  console.log('Mounted /api/cart');
+} catch (err) {
+  console.warn('Could not mount /api/cart route:', err.message || err);
+}
   // Fallback: simple 404 for everything else
   app.use((req, res) => {
     res.status(404).json({ error: 'Not found' });
@@ -133,4 +110,3 @@ start().catch(err => {
   console.error('Failed to start server:', err);
   process.exit(1);
 });
-
