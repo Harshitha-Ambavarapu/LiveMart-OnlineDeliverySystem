@@ -4,6 +4,7 @@ const { generateOTP, otpExpiresInMinutes } = require('../utils/otp');
 const nodemailer = require('nodemailer');
 const jwt = require('jsonwebtoken');
 
+// ---------------- SMTP SETUP ----------------
 let transporter;
 if (process.env.SMTP_USER) {
   transporter = nodemailer.createTransport({
@@ -21,101 +22,138 @@ if (process.env.SMTP_USER) {
   });
 }
 
+// ---------------- UTILS ----------------
 function minutesFromEnv() {
   const m = Number(process.env.OTP_EXPIRY_MIN);
   return Number.isFinite(m) && m > 0 ? m : 5;
 }
 
+// ---------------- REQUEST OTP ----------------
 async function requestOtp(req, res) {
   try {
     let { email, role, name, location } = req.body;
-    if (email) email = String(email).toLowerCase().trim();
 
     if (!email) return res.status(400).json({ error: 'email required' });
     if (!role) return res.status(400).json({ error: 'role required' });
 
-    let user = await User.findOne({ email });
+    const emailLower = String(email).toLowerCase().trim();
+    const roleLower = String(role).toLowerCase().trim();
+
+    // Try to find an existing user
+    let user = await User.findOne({ email: emailLower }).exec();
+
     if (!user) {
-      user = new User({ email, role, name, location, provider: 'local' });
+      // Create NEW user if not exists
+      user = new User({
+        email: emailLower,
+        role: roleLower,
+        name,
+        location,
+        provider: 'local'
+      });
     } else {
-      if (name) user.name = name;
-      if (location) user.location = location;
-      user.role = role;
+      // update optional fields if provided
+      user.name = name || user.name;
+      user.location = location || user.location;
+      // keep existing provider/role unless you want to allow overwrites
     }
 
+    // Generate and store a fresh OTP
     const code = String(generateOTP(6));
     const expiresAt = otpExpiresInMinutes(process.env.OTP_EXPIRY_MIN || minutesFromEnv());
 
     user.otp = { code, expiresAt, verified: false };
     await user.save();
 
-    console.log(`DEBUG OTP for ${user.email} : ${code}`);
+    console.log(`DEBUG OTP for ${user.email}: ${code}`);
 
+    // Prepare email
     const mailOptions = {
       from: process.env.EMAIL_FROM || `LiveMart <${process.env.SMTP_USER || 'no-reply@livemart.local'}>`,
-      to: email,
+      to: emailLower,
       subject: 'Your LiveMart OTP Code',
-      text: `Hello ${user.name || ''},\n\nYour OTP for LiveMart registration is ${code}.\nIt will expire in ${minutesFromEnv()} minutes.\n\nThanks,\nTeam LiveMart`
+      text: `Hello ${user.name || ''},\n\nYour OTP for LiveMart registration is ${code}.\nIt expires in ${minutesFromEnv()} minutes.\n\nThanks,\nLiveMart`
     };
 
     if (transporter) {
       try {
         await transporter.sendMail(mailOptions);
-        console.log(`OTP email sent to ${email}`);
       } catch (mailErr) {
-        console.warn('Error sending OTP email (will not block):', mailErr.message || mailErr);
+        console.warn('Error sending OTP email:', mailErr.message);
       }
-    } else {
-      console.log('[requestOtp] SMTP not configured; skipped email send.');
     }
 
-    const resp = { ok: true, message: 'OTP generated and stored', userId: user._id };
-    if (process.env.DEBUG_OTP === 'true') resp.otp = code;
-    return res.json(resp);
+    return res.json({
+      ok: true,
+      message: 'OTP sent',
+      userId: user._id,
+      ...(process.env.DEBUG_OTP === 'true' ? { otp: code } : {})
+    });
+
   } catch (err) {
     console.error('requestOtp error:', err);
     return res.status(500).json({ error: 'Server error', detail: String(err) });
   }
 }
 
+// ---------------- VERIFY OTP ----------------
 async function verifyOtp(req, res) {
   try {
-    let { email, code } = req.body;
-    if (!email || !code) return res.status(400).json({ error: 'missing fields' });
+    const { userId, code, email } = req.body;
 
-    email = String(email).toLowerCase().trim();
-    code = String(code).trim();
-
-    const user = await User.findOne({ email });
-    if (!user || !user.otp) return res.status(400).json({ error: 'no OTP requested' });
-
-    console.log('verifyOtp debug - stored:', user.otp, 'received:', code);
-
-    if (user.otp.verified) return res.status(400).json({ error: 'already verified' });
-
-    if (user.otp.expiresAt && new Date(user.otp.expiresAt) < new Date()) {
-      return res.status(400).json({ error: 'otp expired' });
+    // allow verification by userId+code OR email+code (frontend may send email)
+    if ((!userId && !email) || !code) {
+      return res.status(400).json({ error: "userId/email and code required" });
     }
 
-    if (String(user.otp.code).trim() !== code) {
-      return res.status(400).json({ error: 'invalid code' });
+    const query = userId ? { _id: userId } : { email: String(email).toLowerCase().trim() };
+    const user = await User.findOne(query);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (!user.otp || !user.otp.code) {
+      return res.status(400).json({ error: "No OTP generated" });
     }
 
+    // Check expiry
+    if (user.otp.expiresAt && new Date() > new Date(user.otp.expiresAt)) {
+      return res.status(400).json({ error: "OTP expired" });
+    }
+
+    // Check match
+    if (String(code).trim() !== String(user.otp.code).trim()) {
+      return res.status(400).json({ error: "Invalid OTP" });
+    }
+
+    // Mark verified and issue a JWT token
     user.otp.verified = true;
     user.verified = true;
     await user.save();
 
-    // optionally create JWT
-    const token = jwt.sign({ id: user._id, role: user.role, email: user.email }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
+    const token = jwt.sign(
+      { id: user._id.toString(), role: user.role, email: user.email },
+      process.env.JWT_SECRET || 'secret',
+      { expiresIn: '7d' }
+    );
 
-    return res.json({ ok: true, message: 'verified', userId: user._id, token });
+    // respond with token and user (lean shape)
+    const userResp = {
+      id: user._id,
+      role: user.role,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      location: user.location,
+    };
+
+    return res.json({ ok: true, message: 'OTP verified', token, user: userResp });
+
   } catch (err) {
-    console.error('verifyOtp error:', err);
-    return res.status(500).json({ error: 'Server error', detail: String(err) });
+    console.error("[verifyOtp] error:", err);
+    return res.status(500).json({ error: "Server error" });
   }
 }
 
-// debug helper - returns user by email or phone (temporary)
+// ---------------- DEBUG GET USER ----------------
 async function debugGetUser(req, res) {
   try {
     const { email, phone } = req.query;
@@ -129,4 +167,92 @@ async function debugGetUser(req, res) {
   }
 }
 
-module.exports = { requestOtp, verifyOtp, debugGetUser };
+// -----------------------------------
+// GET /api/auth/me  (return logged-in user)
+// -----------------------------------
+async function getMe(req, res) {
+  try {
+    if (!req.user || !req.user.id)
+      return res.status(401).json({ error: 'Not authenticated' });
+
+    const user = await User.findById(req.user.id).lean();
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    return res.json({
+      ok: true,
+      user: {
+        id: user._id,
+        role: user.role,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        location: user.location
+      }
+    });
+  } catch (err) {
+    console.error('[getMe] error', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+}
+
+// -----------------------------------
+// POST /api/auth/update-role
+// -----------------------------------
+async function updateRole(req, res) {
+  try {
+    const { role } = req.body;
+    if (!role) return res.status(400).json({ error: 'role required' });
+
+    const allowed = ['customer', 'retailer', 'wholesaler'];
+    if (!allowed.includes(role.toLowerCase()))
+      return res.status(400).json({ error: 'invalid role' });
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    user.role = role.toLowerCase();
+    await user.save();
+
+    return res.json({
+      ok: true,
+      message: 'role updated',
+      user: { id: user._id, role: user.role }
+    });
+  } catch (err) {
+    console.error('[updateRole] error', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+}
+
+// ---------------- CHECK EMAIL ----------------
+async function checkEmail(req, res) {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ ok: false, error: "email required" });
+    }
+
+    const emailLower = String(email).toLowerCase().trim();
+    const user = await User.findOne({ email: emailLower }).lean();
+
+    if (user) {
+      // return exists + user (useful for frontend decision)
+      return res.json({ ok: true, exists: true, user });
+    } else {
+      return res.json({ ok: true, exists: false });
+    }
+  } catch (err) {
+    console.error("[checkEmail] error:", err);
+    return res.status(500).json({ ok: false, error: "Server error" });
+  }
+}
+
+// ---------------- EXPORTS ----------------
+module.exports = {
+  requestOtp,
+  verifyOtp,
+  debugGetUser,
+  getMe,
+  updateRole,
+  checkEmail
+};

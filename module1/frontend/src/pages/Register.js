@@ -15,23 +15,28 @@ export default function Register() {
     lng: "",
     placeId: "",
   });
+
   const [otpState, setOtpState] = React.useState({
     open: false,
     otpId: null,
     userId: null,
   });
+
   const [status, setStatus] = React.useState({ type: "", text: "" });
 
+  // Google places autocomplete cleanup (keeps your existing code but safe)
   React.useEffect(() => {
     if (!window.google || !window.google.maps) return;
     const input = document.getElementById("address-input");
     if (!input) return;
+
     const autocomplete = new window.google.maps.places.Autocomplete(input, {
       types: ["geocode"],
     });
-    autocomplete.addListener("place_changed", () => {
+
+    const listener = autocomplete.addListener("place_changed", () => {
       const place = autocomplete.getPlace();
-      if (!place.geometry) return;
+      if (!place || !place.geometry) return;
       setForm((f) => ({
         ...f,
         address: place.formatted_address,
@@ -40,6 +45,16 @@ export default function Register() {
         placeId: place.place_id,
       }));
     });
+
+    return () => {
+      try {
+        if (listener && typeof listener.remove === "function") listener.remove();
+        else if (autocomplete && typeof autocomplete.unbindAll === "function")
+          autocomplete.unbindAll();
+      } catch (e) {
+        // ignore
+      }
+    };
   }, []);
 
   const buildRequestPayload = () => ({
@@ -55,6 +70,7 @@ export default function Register() {
     },
   });
 
+  // send request OTP
   const requestOtp = async (e) => {
     e.preventDefault();
     setStatus({ type: "info", text: "Sending OTP..." });
@@ -64,41 +80,39 @@ export default function Register() {
         setStatus({ type: "danger", text: "Please enter a valid email." });
         return;
       }
+
       const res = await API.post("/api/auth/request-otp", payload);
 
-      localStorage.setItem(
-        "signupData",
-        JSON.stringify({
-          name: payload.name,
-          email: payload.email,
-          phone: payload.phone,
-          role: payload.role,
-          address: payload.location,
-        })
-      );
+      // If backend says account exists (login flow) — direct login
+      if (res.data && res.data.exists === true) {
+        const user = res.data.user;
+        user.role = (user.role || "").toString().toLowerCase();
+        localStorage.setItem("user", JSON.stringify(user));
+        // no token returned here — normally OTP verify returns token; redirect based on role
+        if (user.role === "retailer") return window.location.replace("/retailer");
+        if (user.role === "wholesaler") return window.location.replace("/wholesaler");
+        return window.location.replace("/customer");
+      }
 
-      const userId = res?.data?.userId || (res?.data?.user && res.data.user._id) || null;
+      // New user — continue OTP flow
+      localStorage.setItem("signupData", JSON.stringify(payload));
+      const userId = res?.data?.userId || null;
       const otpId = res?.data?.otpId || null;
-      const devOtp = res?.data?.otp || null;
-      if (devOtp) console.log("[debug] OTP from backend:", devOtp);
-
       setOtpState({ open: true, otpId, userId });
       setStatus({ type: "success", text: "OTP sent successfully!" });
     } catch (err) {
-      console.error("[requestOtp] error:", err?.response?.data || err?.message || err);
+      console.error("[requestOtp] error:", err?.response?.data || err);
       setStatus({
         type: "danger",
-        text:
-          err?.response?.data?.error ||
-          err?.response?.data?.msg ||
-          err?.response?.data?.message ||
-          "Error sending OTP",
+        text: err?.response?.data?.error || "Error sending OTP",
       });
     }
   };
 
+  // handleVerify - robust: call /verify-otp, store token+user, redirect
   const handleVerify = async ({ otp, otpId, userId }) => {
     try {
+      setStatus({ type: "info", text: "Verifying..." });
       const signupData = JSON.parse(localStorage.getItem("signupData") || "{}");
       const email = signupData.email;
       if (!email) {
@@ -108,19 +122,49 @@ export default function Register() {
 
       const payload = {
         email: String(email).toLowerCase().trim(),
-        code: String(otp).trim()
+        code: String(otp).trim(),
       };
 
       const res = await API.post("/api/auth/verify-otp", payload);
+      console.log("verify-otp response:", res?.data);
 
+      // store token + user from server response
       if (res?.data?.token) localStorage.setItem("token", res.data.token);
-      if (res?.data?.user) localStorage.setItem("user", JSON.stringify(res.data.user));
+      if (res?.data?.user) {
+        const user = res.data.user;
+        user.role = (user.role || "").toString().toLowerCase();
+        localStorage.setItem("user", JSON.stringify(user));
+      } else if (res?.data?.token) {
+        // fallback: decode token payload to derive user.role if server didn't include user
+        try {
+          const parts = res.data.token.split(".");
+          if (parts.length === 3) {
+            const payloadDecoded = JSON.parse(atob(parts[1]));
+            const derived = {
+              id: payloadDecoded.id || payloadDecoded._id || null,
+              email: payloadDecoded.email || "",
+              role: (payloadDecoded.role || "customer").toString().toLowerCase(),
+            };
+            localStorage.setItem("user", JSON.stringify(derived));
+          }
+        } catch (e) {
+          console.warn("token decode fallback failed", e);
+        }
+      }
 
+      // close modal
       setOtpState({ open: false, otpId: null, userId: null });
-      setStatus({ type: "success", text: "Verified successfully!" });
-      setTimeout(() => (window.location.href = "/"), 700);
+      setStatus({ type: "success", text: "Verified — redirecting..." });
+
+      // redirect based on stored user role (normalized)
+      const storedUser = JSON.parse(localStorage.getItem("user") || "null");
+      const role = (storedUser?.role || "customer").toString().toLowerCase();
+
+      if (role === "retailer") return window.location.replace("/retailer");
+      if (role === "wholesaler") return window.location.replace("/wholesaler");
+      return window.location.replace("/customer");
     } catch (err) {
-      console.error("[handleVerify] error:", err?.response?.data || err?.message || err);
+      console.error("[handleVerify] error:", err?.response?.data || err);
       setStatus({
         type: "danger",
         text:
@@ -133,13 +177,13 @@ export default function Register() {
   };
 
   return (
-<div
-  className="d-flex align-items-center justify-content-center"
-  style={{
-    minHeight: "100vh",
-    background: "#f2f2f2",     // Uber light grey
-  }}
->
+    <div
+      className="d-flex align-items-center justify-content-center"
+      style={{
+        minHeight: "100vh",
+        background: "#f2f2f2",
+      }}
+    >
       <div
         className="card p-4 shadow-lg"
         style={{
@@ -151,14 +195,9 @@ export default function Register() {
           backdropFilter: "blur(10px)",
         }}
       >
-        <h2
-  className="text-center mb-4 fw-bold"
-  style={{
-    color: "#000",      // Pure black
-  }}
->
-  LiveMart — Register / Sign Up
-</h2>
+        <h2 className="text-center mb-4 fw-bold" style={{ color: "#000" }}>
+          LiveMart — Register / Sign Up
+        </h2>
 
         <form onSubmit={requestOtp} className="row g-3">
           <div className="col-md-6">
@@ -170,7 +209,7 @@ export default function Register() {
             >
               <option>Customer</option>
               <option>Retailer</option>
-              <option>Consumer</option>
+              <option>Wholesaler</option>
             </select>
           </div>
 
@@ -251,7 +290,9 @@ export default function Register() {
 
         {status.text && (
           <div
-            className={`alert mt-3 text-center alert-${status.type === "info" ? "secondary" : status.type}`}
+            className={`alert mt-3 text-center alert-${
+              status.type === "info" ? "secondary" : status.type
+            }`}
           >
             {status.text}
           </div>

@@ -2,29 +2,36 @@
 const express = require('express');
 const router = express.Router();
 const passport = require('passport');
+const auth = require('../middleware/auth');
 
-// controllers - make sure these exist and export the named functions
-const { requestOtp, verifyOtp, debugGetUser } = require('../controllers/authController');
+// 🔥 FIXED IMPORT — all controller functions
+const {
+  requestOtp,
+  verifyOtp,
+  checkEmail,
+  debugGetUser,
+  getMe,
+  updateRole
+} = require('../controllers/authController');
 
 // ---- OTP endpoints ----
 router.post('/request-otp', requestOtp);
 router.post('/verify-otp', verifyOtp);
+router.get('/me', auth, getMe);
+router.post('/update-role', auth, updateRole);
+router.post('/check-email', checkEmail);
 
-// optional debug endpoint to inspect stored users during development
-// (remove or protect in production)
+// optional debug endpoint
 if (typeof debugGetUser === 'function') {
   router.get('/debug-user', debugGetUser);
 }
 
-// helper to build front-end redirect base
+// helper
 const getFrontendBase = () => process.env.FRONTEND_URL || 'http://localhost:3000';
 
-// ---- Google OAuth routes ----
-// Initiate Google auth (redirects user to Google consent)
+// ---- Google OAuth ----
 router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
 
-// Callback route Google will redirect to after consent
-// NOTE: we log incoming query (code / error) to help debugging token exchange issues.
 router.get(
   '/google/callback',
   (req, res, next) => {
@@ -43,8 +50,6 @@ router.get(
         process.env.JWT_SECRET || 'secret',
         { expiresIn: '7d' }
       );
-
-      console.log('[auth/google/callback] success for user', req.user._id);
       return res.redirect(`${getFrontendBase()}/social-login-success#token=${token}`);
     } catch (err) {
       console.error('[auth/google/callback] final handler error:', err);
@@ -53,7 +58,7 @@ router.get(
   }
 );
 
-// ---- Facebook OAuth routes ----
+// ---- Facebook OAuth ----
 router.get('/facebook', passport.authenticate('facebook', { scope: ['email'] }));
 
 router.get(
@@ -74,8 +79,6 @@ router.get(
         process.env.JWT_SECRET || 'secret',
         { expiresIn: '7d' }
       );
-
-      console.log('[auth/facebook/callback] success for user', req.user._id);
       return res.redirect(`${getFrontendBase()}/social-login-success#token=${token}`);
     } catch (err) {
       console.error('[auth/facebook/callback] final handler error:', err);

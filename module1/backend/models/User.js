@@ -11,8 +11,18 @@ const UserSchema = new mongoose.Schema({
   name: { type: String },
   email: { type: String, index: true, sparse: true },
   phone: { type: String, index: true, sparse: true },
-  role: { type: String, enum: ['Customer','Retailer','Consumer'], default: 'Customer' },
-  passwordHash: { type: String },
+
+  // role: accept both lowercase and capitalized values,
+  // but we'll normalize to lowercase before saving.
+  role: {
+    type: String,
+    enum: [
+      'customer','retailer','wholesaler',    // canonical lowercase values
+      'Customer','Retailer','Wholesaler'     // also accept capitalized from frontend/JWT
+    ],
+    default: 'customer'
+  },
+
   provider: { type: String, default: 'local' },
   socialId: { type: String },
   verified: { type: Boolean, default: false },
@@ -30,6 +40,10 @@ const UserSchema = new mongoose.Schema({
 UserSchema.pre('save', function(next) {
   if (this.email && typeof this.email === 'string') {
     this.email = this.email.toLowerCase().trim();
+  }
+  // normalize role to lowercase so DB stays consistent
+  if (this.role && typeof this.role === 'string') {
+    this.role = this.role.toLowerCase().trim();
   }
   return next();
 });
